@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { createScene, viewpoints } from './scene'
+import { HistoryContext, HistoryLocation, HistorySource } from './HistoryPanels'
 import './style.css'
 
 const number = new Intl.NumberFormat('de-CH', { maximumFractionDigits: 1 })
 const describe = (value) => value?.replace('Gebaeude', 'Gebäude').replaceAll('_', ' ')
 const measured = (value, unit) => Number.isFinite(value) && value > 0 ? `${number.format(value)} ${unit}` : null
 
-function Layers({ buildings, photo, disabled, onBuildings, onPhoto }) {
+function Layers({ buildings, photo, history, disabled, onBuildings, onPhoto, onHistory, children }) {
   return (
     <section className="panel layers" aria-labelledby="layer-heading">
       <h2 id="layer-heading">Kartenlayer</h2>
@@ -22,6 +23,12 @@ function Layers({ buildings, photo, disabled, onBuildings, onPhoto }) {
         <span>Luftbild</span>
         <input type="checkbox" role="switch" disabled={disabled} checked={photo} onChange={(event) => onPhoto(event.target.checked)} />
       </label>
+      <label className="layer">
+        <span className="swatch history-swatch" aria-hidden="true" />
+        <span>Bombardierung 1944</span>
+        <input type="checkbox" role="switch" disabled={disabled} checked={history} onChange={(event) => onHistory(event.target.checked)} />
+      </label>
+      {children}
     </section>
   )
 }
@@ -60,6 +67,11 @@ function App() {
   const [feature, setFeature] = useState(null)
   const [buildings, setBuildings] = useState(true)
   const [photo, setPhoto] = useState(false)
+  const [history, setHistory] = useState(false)
+  const [context, setContext] = useState(false)
+  const [locations, setLocations] = useState(null)
+  const [selectedLocation, setSelectedLocation] = useState(null)
+  const [historyError, setHistoryError] = useState('')
   const [error, setError] = useState('')
   const [photoError, setPhotoError] = useState('')
 
@@ -74,6 +86,18 @@ function App() {
     try {
       scene = createScene(map.current, credits.current, {
         onSelect: setFeature,
+        onHistorySelect: (places) => {
+          setLocations(places)
+          setSelectedLocation(null)
+          if (places) setContext(false)
+        },
+        onHistoryError: (cause) => {
+          if (!active) return
+          console.error(cause)
+          setHistory(false)
+          setContext(false)
+          setHistoryError('Die historischen Geodaten konnten nicht geladen werden.')
+        },
         onHeading: (heading) => {
           if (compass.current) compass.current.style.transform = `rotate(${-heading}rad)`
         },
@@ -116,9 +140,26 @@ function App() {
           : !area && <p className="status" role="status">3D-Stadtmodell wird geladen …</p>}
         {photoError && !error && <p className="status" role="status">{photoError}</p>}
         <div className="sidebar">
-          <Layers buildings={buildings} photo={photo} disabled={!area}
+          <Layers buildings={buildings} photo={photo} history={history} disabled={!area}
             onBuildings={(value) => { setBuildings(value); viewer.current?.setBuildings(value) }}
-            onPhoto={(value) => { setPhotoError(''); setPhoto(value); viewer.current?.setPhoto(value) }} />
+            onPhoto={(value) => { setPhotoError(''); setPhoto(value); viewer.current?.setPhoto(value) }}
+            onHistory={(value) => {
+              setHistoryError('')
+              setHistory(value)
+              if (!value) setContext(false)
+              viewer.current?.setHistory(value)
+            }}>
+            {history && (
+              <div className="history-actions">
+                <button type="button" className="history-button" onClick={() => viewer.current?.focus('history')}>Einschlagorte zeigen</button>
+                <button type="button" className="history-button" aria-expanded={context} onClick={() => setContext(!context)}>Historische Einordnung</button>
+              </div>
+            )}
+            {historyError && <p className="history-error" role="alert">{historyError}</p>}
+          </Layers>
+          {history && context && <HistoryContext onClose={() => setContext(false)} />}
+          {history && locations && <HistoryLocation locations={locations} selected={selectedLocation}
+            onSelect={setSelectedLocation} onClose={() => viewer.current?.clearSelection()} />}
           {feature && <Building feature={feature} onClose={() => viewer.current?.clearSelection()} />}
         </div>
         <div className="map-controls" aria-label="Kartensteuerung">
@@ -133,6 +174,7 @@ function App() {
           <p className="help">Ziehen zum Verschieben · Rechts ziehen zum Neigen und Drehen · Scrollen zum Zoomen</p>
           <div className="attribution">
             <a href="https://www.swisstopo.admin.ch/" target="_blank" rel="noreferrer">© swisstopo</a>
+            {history && <HistorySource>Kanton SH</HistorySource>}
             <div ref={credits} className="cesium-credits" />
           </div>
         </footer>

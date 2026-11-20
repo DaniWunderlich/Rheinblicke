@@ -3,6 +3,7 @@ import {
   Color, Credit, CreditDisplay, HeadingPitchRange, KeyboardEventModifier, Math as CesiumMath, Matrix4, Model,
   ScreenSpaceEventHandler, ScreenSpaceEventType, Viewer,
 } from 'cesium'
+import { loadHistory } from './historyScene'
 
 const staticRoot = new URL(import.meta.env.BASE_URL, document.baseURI)
 globalThis.CESIUM_BASE_URL = new URL('cesium/', staticRoot).href
@@ -15,6 +16,8 @@ export const viewpoints = {
   munot: { label: 'Munot', position: [8.64024, 47.69687, 497], heading: 321, pitch: -39, range: 460 },
   rhine: { label: 'Rheinufer', position: [8.6355, 47.69375, 444], heading: 307, pitch: -38, range: 760 },
 }
+
+const historyView = { position: [8.6282, 47.6957, 455], heading: 345, pitch: -58, range: 1830 }
 
 const fields = ['uuid', 'name', 'type', 'use', 'egid', 'height', 'roofHeight', 'year']
 const selectedColor = Color.fromCssColorString('#ffcf57')
@@ -46,6 +49,10 @@ export function createScene(container, credits, callbacks) {
   let terrain
   let photo
   let photoRequest
+  let history
+  let historyRequest
+  let showHistory = false
+  let historySelection
   let selection
   let previousColor
   let showBuildings = true
@@ -54,7 +61,7 @@ export function createScene(container, credits, callbacks) {
 
   function focus(key, animate = true) {
     if (!area) return
-    const view = viewpoints[key]
+    const view = key === 'history' ? historyView : viewpoints[key]
     const target = Cartesian3.fromDegrees(...(view.position ?? area.center))
     const offset = new HeadingPitchRange(CesiumMath.toRadians(view.heading),
       CesiumMath.toRadians(view.pitch), view.range * Math.max(1, 1 / camera.frustum.aspectRatio))
@@ -70,15 +77,30 @@ export function createScene(container, credits, callbacks) {
   }
 
   function clearSelection() {
-    if (selection) selection.color = previousColor
-    selection = undefined
-    callbacks.onSelect(null)
+    if (selection) {
+      selection.color = previousColor
+      selection = undefined
+      callbacks.onSelect(null)
+    }
+    if (historySelection) {
+      historySelection = undefined
+      callbacks.onHistorySelect(null)
+    }
     scene.requestRender()
   }
 
   input.setInputAction(({ position }) => {
     const feature = scene.pick(position)
     clearSelection()
+    if (showHistory && history) {
+      const ids = Array.isArray(feature?.id) ? feature.id : [feature?.id]
+      const locations = ids.map((entity) => history.locations.get(entity)).filter(Boolean)
+      if (locations.length) {
+        historySelection = locations.sort((a, b) => a.id - b.id)
+        callbacks.onHistorySelect(historySelection)
+        return
+      }
+    }
     if (!(feature instanceof Cesium3DTileFeature) || feature.primitive !== buildings) return
     selection = feature
     previousColor = Color.clone(feature.color)
@@ -123,6 +145,32 @@ export function createScene(container, credits, callbacks) {
     scene.requestRender()
   }
 
+  const pendingHistory = new AbortController()
+
+  async function setHistory(visible) {
+    showHistory = visible
+    if (!visible && historySelection) clearSelection()
+    if (history) history.layer.show = visible
+    scene.requestRender()
+    if (!visible || history) return
+
+    historyRequest ??= (async () => {
+      const result = await loadHistory(dataUrl('bombardierung-1944.geojson'), pendingHistory.signal)
+      if (disposed) return
+      result.layer.show = showHistory
+      await viewer.dataSources.add(result.layer)
+      if (disposed) return
+      history = result
+      history.layer.show = showHistory
+      scene.requestRender()
+    })().catch((error) => {
+      if (disposed || !showHistory) return
+      showHistory = false
+      callbacks.onHistoryError(error)
+    }).finally(() => { historyRequest = undefined })
+    return historyRequest
+  }
+
   const pendingArea = new AbortController()
   const ready = (async () => {
     const response = await fetch(dataUrl('gebiet.json'), { signal: pendingArea.signal })
@@ -152,11 +200,12 @@ export function createScene(container, credits, callbacks) {
     ready,
     focus,
     setPhoto,
+    setHistory,
     clearSelection,
     setBuildings(visible) {
       showBuildings = visible
       if (buildings) buildings.show = visible
-      if (!visible) clearSelection()
+      if (!visible && selection) clearSelection()
       scene.requestRender()
     },
     zoom(closer) {
@@ -175,6 +224,7 @@ export function createScene(container, credits, callbacks) {
     destroy() {
       disposed = true
       pendingArea.abort()
+      pendingHistory.abort()
       input.destroy()
       viewer.destroy()
     },

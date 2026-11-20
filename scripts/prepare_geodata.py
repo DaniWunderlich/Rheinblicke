@@ -3,6 +3,7 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import file_digest
 from itertools import product
 import json
 import math
@@ -16,15 +17,20 @@ from osgeo import gdal, ogr
 from pyproj import Transformer, datadir
 
 ROOT = Path(__file__).resolve().parents[1]
-BOUNDS = (2689280, 1282830, 2690820, 1284020)
+BOUNDS = (2688468, 1282830, 2690820, 1284020)
+TERRAIN_STEP = 7
+HISTORY_URL = "https://data.geo.sh.ch/ogd/bombardierung_schaffhausen.zip"
+HISTORY_METADATA = "https://opendata.swiss/de/dataset/bombardierung-schaffhausen-kanton-schaffhausen"
+HISTORY_MEMBER = "datenabgabe/gpkg/bombardierung_schaffhausen.gpkg"
+HISTORY_LAYER = "oeffentlich.sh.bevoelkerungsschutz.bombardierung.sh.bombeneinschlaege"
 DATA = "https://data.geo.admin.ch"
 GRID = "ch_swisstopo_chgeo2004_ETRS89_LN02.tif"
 BUILDINGS = ("1031-24", "1031-42", "1032-13", "1032-31")
-RASTERS = tuple(f"{e}-{n}" for e, n in product((2689, 2690), (1282, 1283, 1284)))
+RASTERS = tuple(f"{e}-{n}" for e, n in product((2688, 2689, 2690), (1282, 1283, 1284)))
 MAP_PARAMS = {
     "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap",
     "LAYERS": "ch.swisstopo.swisstlm3d-karte-farbe", "STYLES": "", "CRS": "EPSG:2056",
-    "BBOX": ",".join(map(str, BOUNDS)), "WIDTH": 770, "HEIGHT": 595, "FORMAT": "image/png",
+    "BBOX": ",".join(map(str, BOUNDS)), "WIDTH": (BOUNDS[2] - BOUNDS[0]) // 2, "HEIGHT": (BOUNDS[3] - BOUNDS[1]) // 2, "FORMAT": "image/png",
 }
 
 
@@ -33,7 +39,8 @@ def asset(collection, item, suffix):
 
 
 def download(cache, url):
-    path = cache / ("basiskarte.png" if "GetMap" in url else url.rsplit("/", 1)[1])
+    map_name = f"basiskarte-{'-'.join(map(str, BOUNDS))}.png"
+    path = cache / (map_name if "GetMap" in url else url.rsplit("/", 1)[1])
     if not path.exists():
         temporary = path.with_suffix(path.suffix + ".part")
         with urlopen(url, timeout=90) as response, temporary.open("wb") as target:
@@ -141,9 +148,11 @@ def texture(source, cache, name):
 def terrain_model(terrain, photo, cartography, cache, out, frame):
     # Sample the 2 m elevation source on a regular 7 m mesh for interactive rendering.
     west, south, east, north = BOUNDS
-    width, height = 221, 171
+    width = (east - west) // TERRAIN_STEP + 1
+    height = (north - south) // TERRAIN_STEP + 1
+    margin = TERRAIN_STEP / 2
     dem = gdal.BuildVRT("", [str(p) for p in terrain])
-    dem = gdal.Warp("", dem, format="MEM", outputBounds=(west-3.5, south-3.5, east+3.5, north+3.5),
+    dem = gdal.Warp("", dem, format="MEM", outputBounds=(west-margin, south-margin, east+margin, north+margin),
                     width=width, height=height, resampleAlg="bilinear", dstNodata=-9999)
     elevation = dem.ReadAsArray()
     if not np.all(np.isfinite(elevation) & (elevation != -9999)):
@@ -159,7 +168,7 @@ def terrain_model(terrain, photo, cartography, cache, out, frame):
 
     imagery = gdal.BuildVRT("", [str(p) for p in photo])
     imagery = gdal.Warp("", imagery, format="MEM", outputBounds=BOUNDS,
-                        width=770, height=595, resampleAlg="bilinear")
+                        width=MAP_PARAMS["WIDTH"], height=MAP_PARAMS["HEIGHT"], resampleAlg="bilinear")
     for name, source in [("basiskarte", str(cartography)), ("luftbild", imagery)]:
         glb = Glb()
         glb.document["extensionsUsed"] = ["KHR_materials_unlit"]
@@ -176,7 +185,7 @@ def terrain_model(terrain, photo, cartography, cache, out, frame):
             "material": 0,
         }]
         (out / f"{name}.glb").write_bytes(glb.encode())
-    return elevation.min().item(), elevation.max().item()
+    return elevation
 
 
 def buildings_model(archives, out, frame):
@@ -271,6 +280,48 @@ def buildings_model(archives, out, frame):
     return len(metadata), len(faces)
 
 
+def history_points(archive, out, frame, elevation):
+    dataset = ogr.Open(f"/vsizip/{archive}/{HISTORY_MEMBER}")
+    layer = dataset.GetLayerByName(HISTORY_LAYER)
+    if layer is None or layer.GetSpatialRef().GetAuthorityCode(None) != "2056":
+        raise ValueError("Expected the cantonal impact point layer in LV95")
+    west, south, east, north = BOUNDS
+    features = []
+    for record in layer:
+        geometry = record.GetGeometryRef()
+        if geometry is None or geometry.GetGeometryName() != "POINT" or geometry.IsEmpty():
+            raise ValueError(f"Invalid impact geometry (ID {record.GetFID()})")
+        e, n = geometry.GetX(), geometry.GetY()
+        if not (west < e < east and south < n < north):
+            raise ValueError(f"Impact outside the terrain coverage (ID {record.GetFID()})")
+
+        # Interpolate on the same triangles used for the displayed terrain.
+        column, row = (e - west) / TERRAIN_STEP, (north - n) / TERRAIN_STEP
+        i, j = int(column), int(row)
+        u, v = column - i, row - j
+        a, b = elevation[j, i:i+2]
+        c, d = elevation[j+1, i:i+2]
+        z = a + u * (b-a) + v * (c-a) if u + v <= 1 else d + (1-u) * (c-d) + (1-v) * (b-d)
+        lon, lat, height = frame.geographic.transform(e, n, z, errcheck=True)
+        features.append({
+            "type": "Feature", "id": record.GetFID(),
+            "geometry": {"type": "Point", "coordinates": [round(lon, 8), round(lat, 8)]},
+            "properties": record.items() | {"groundHeightWgs84": round(height, 2)},
+        })
+
+    if not features:
+        raise ValueError("The cantonal impact layer is empty")
+    with archive.open("rb") as source:
+        checksum = file_digest(source, "sha256").hexdigest()
+    (out / "bombardierung-1944.geojson").write_bytes(json_bytes({
+        "type": "FeatureCollection",
+        "source": {"url": HISTORY_URL, "metadata": HISTORY_METADATA, "sha256": checksum,
+                   "member": HISTORY_MEMBER, "layer": HISTORY_LAYER, "crs": "EPSG:2056"},
+        "features": features,
+    }) + b"\n")
+    return len(features)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache")
@@ -291,19 +342,21 @@ def main():
     grid_url = f"https://cdn.proj.org/{GRID}"
     with ThreadPoolExecutor(max_workers=6) as pool:
         files = dict(zip(
-            urls := [*building_urls, *terrain_urls, *photo_urls, map_url, grid_url],
+            urls := [*building_urls, *terrain_urls, *photo_urls, map_url, grid_url, HISTORY_URL],
             pool.map(lambda url: download(cache, url), urls),
         ))
 
     frame = LocalFrame(cache)
-    low, high = terrain_model([files[url] for url in terrain_urls], [files[url] for url in photo_urls],
+    elevation = terrain_model([files[url] for url in terrain_urls], [files[url] for url in photo_urls],
                               files[map_url], cache, out, frame)
+    points = history_points(files[HISTORY_URL], out, frame, elevation)
+    low, high = float(elevation.min()), float(elevation.max())
     count, triangles = buildings_model([files[url] for url in building_urls], out, frame)
     (out / "gebiet.json").write_text(json.dumps({
         "center": frame.center, "transform": frame.transform(), "boundsLv95": BOUNDS,
         "buildings": count, "terrainHeightLn02": [round(low), round(high)],
     }, indent=2) + "\n")
-    print(f"{count} buildings, {triangles} triangles, terrain {low:.1f}–{high:.1f} m LN02")
+    print(f"{count} buildings, {triangles} triangles, terrain {low:.1f}–{high:.1f} m LN02, {points} historical impact points")
 
 
 if __name__ == "__main__":

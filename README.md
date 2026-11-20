@@ -20,6 +20,12 @@ npm run preview
 
 Der Produktionsbuild liegt in `dist/` und lässt sich auf einem statischen Webserver bereitstellen. Der Viewer lädt alle Daten und CesiumJS-Ressourcen vom eigenen Server. Für den Betrieb sind kein Backend, kein API-Schlüssel und kein Cesium-ion-Konto erforderlich.
 
+## Historischer Layer
+
+Unter **Kartenlayer** blendet **Bombardierung 1944** die 354 dokumentierten Einschlagorte ein. **Einschlagorte zeigen** wechselt zur Übersicht über das historische Gebiet. Ein Klick auf einen Punkt zeigt Typ, Datum, WGS-84-Koordinaten und die Kennung aus der Quelle. Nahe beieinanderliegende Punkte werden mit ihrer Anzahl gruppiert. Ein Klick auf die Gruppe öffnet die Liste ihrer Orte. **Historische Einordnung** öffnet den Kurztext mit Quellen des Bundes, des Museums zu Allerheiligen und des Stadtarchivs.
+
+Die Einschlagdaten beruhen auf historischen Unterlagen und erfassen einen Teil aller Einschläge. [Kantonaler Datensatz und Nutzungsbedingungen](https://opendata.swiss/de/dataset/bombardierung-schaffhausen-kanton-schaffhausen)
+
 ## Screenshots
 
 ### Übersicht
@@ -44,13 +50,14 @@ Der Produktionsbuild liegt in `dist/` und lässt sich auf einem statischen Webse
 
 ## Geodaten
 
-Das Testgebiet misst 1’540 × 1’190 Meter und umfasst 1’923 Gebäude. Es werden folgende Datensätze verwendet (© swisstopo):
+Das Testgebiet misst 2’352 × 1’190 Meter und umfasst 2’556 Gebäude. Es werden folgende Datensätze verwendet (© swisstopo):
 
 | Datensatz | Verwendung |
 | --- | --- |
 | [swissBUILDINGS3D 3.0](https://www.swisstopo.admin.ch/de/landschaftsmodell-swissbuildings3d-3-0) (Ausgabe 2025) | Originale Dreiecksflächen und verfügbare Gebäudeattribute als 3D Tiles |
 | [swissALTI3D](https://www.swisstopo.admin.ch/de/hoehenmodell-swissalti3d) (Ausgabe 2026) | Gelände aus dem 2-Meter-Höhenmodell, für den Viewer auf einem 7-Meter-Raster abgetastet |
 | [swissTLM3D-Karte](https://map.geo.admin.ch/#/map?lang=de&bgLayer=ch.swisstopo.swisstlm3d-karte-farbe) | Basiskarte mit Strassen, Plätzen, Grünflächen und Gewässern |
+| [Bombardierung Schaffhausen, Kanton Schaffhausen](https://opendata.swiss/de/dataset/bombardierung-schaffhausen-kanton-schaffhausen) | Dokumentierte Einschlagpunkte vom 1. April 1944 |
 | [SWISSIMAGE](https://www.swisstopo.admin.ch/de/orthofotomosaik-swissimage-10-cm) (Ausgabe 2025) | Umschaltbares Orthofoto mit 2 Metern Bodenauflösung |
 
 Die Gebäude und das Gelände werden gemeinsam von LV95/LN02 in WGS 84 mit ellipsoidischen Höhen transformiert. Die Gebäudeansicht zeigt die publizierten Höhen weiterhin in Metern über Meer. Strassen, Plätze, Grünflächen und Gewässer sind in dieser Version auf das Gelände projiziert. Gebäudedaten können leere Attribute enthalten.
@@ -64,5 +71,7 @@ python3 scripts/prepare_geodata.py
 ```
 
 Das Skript lädt die Quellen und das swisstopo-Höhentransformationsgitter nach `.cache/`. Die Basiskarte wird beim ersten Aufruf vom Bundes-WMS abgerufen. Die über `--output` konfigurierbare Ausgabe enthält das Gebiet, die 3D Tiles mit Gebäudeattributen und die beiden Geländemodelle mit eingebetteten Texturen.
+
+Für den historischen Layer lädt das Skript das [kantonale Originalarchiv](https://data.geo.sh.ch/ogd/bombardierung_schaffhausen.zip), liest die 354 Einschlagpunkte aus dem GeoPackage in LV95 und transformiert sie nach WGS 84. Das GeoJSON bewahrt die Original-ID, UUID und Typangabe. Die Anzeigehöhe wird aus dem heutigen Geländemodell abgeleitet. Im GeoJSON sind Downloadadresse, SHA-256 des Originalarchivs, GeoPackage-Pfad und Layername hinterlegt.
 
 [Projektvision](Vision.md)
