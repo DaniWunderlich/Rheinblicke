@@ -20,6 +20,28 @@ npm run preview
 
 Der Produktionsbuild liegt in `dist/` und lässt sich auf einem statischen Webserver bereitstellen. Der Viewer lädt alle Daten und CesiumJS-Ressourcen vom eigenen Server. Für den Betrieb sind kein Backend, kein API-Schlüssel und kein Cesium-ion-Konto erforderlich.
 
+## Screenshots
+
+### Übersicht
+
+![3D-Übersicht von Schaffhausen mit Altstadt, Munothügel und Rhein](docs/screenshots/uebersicht.jpg)
+
+### Altstadt und Gebäudeinformationen
+
+![Ausgewähltes Gebäude in der Altstadt mit EGID und Gebäudehöhe im Infopanel](docs/screenshots/altstadt-gebaeudeinfo.jpg)
+
+### Festung Munot
+
+![Nahansicht der Festung Munot mit Rundturm und Befestigungsmauern auf dem Munothügel](docs/screenshots/munot.jpg)
+
+### Rheinufer mit Luftbild
+
+![Rheinufer mit eingeschaltetem Luftbild und darüberliegenden 3D-Gebäuden](docs/screenshots/rheinufer-luftbild.jpg)
+
+### Mobile Ansicht
+
+<img src="docs/screenshots/mobil.jpg" alt="Mobiler Viewer mit 3D-Altstadt, Aussichtspunkten und Layersteuerung" width="320">
+
 ## Geodaten
 
 Das Testgebiet misst 1’540 × 1’190 Meter und umfasst 1’923 Gebäude. Es werden folgende Datensätze verwendet (© swisstopo):
