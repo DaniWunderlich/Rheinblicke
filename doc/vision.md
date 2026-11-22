@@ -1,4 +1,6 @@
-Vision – Schaffhausen 3D
+# Vision – Rheinblicke
+
+[Deutsch](vision.md) · [English](vision.en.md)
 
 Ein digitaler 3D-Zwilling der Stadt Schaffhausen
 
@@ -101,6 +103,6 @@ Der erste Prototyp ist erfolgreich, wenn:
 
 9. Zielbild
 
-Schaffhausen 3D soll zeigen, wie sich aus öffentlich verfügbaren Geodaten mit überschaubarem Aufwand ein interaktiver digitaler Stadtzwilling aufbauen lässt.
+Rheinblicke soll zeigen, wie sich aus öffentlich verfügbaren Geodaten mit überschaubarem Aufwand ein interaktiver digitaler Stadtzwilling aufbauen lässt.
 
 Der erste Prototyp ist eine technische Machbarkeitsdemonstration und gleichzeitig das Fundament für eine künftig erweiterbare 3D-Geodatenplattform.

@@ -4,8 +4,8 @@ import {
 } from 'cesium'
 import { viewpoints } from './viewpoints.js'
 
-export function createPlaces() {
-  const layer = new CustomDataSource('Aussichtspunkte')
+export function createPlaces(language = 'de') {
+  const layer = new CustomDataSource('places')
   const destinations = new Map()
   for (const [key, view] of Object.entries(viewpoints)) {
     if (!view.position) continue
@@ -13,13 +13,13 @@ export function createPlaces() {
       id: `place-${key}`,
       position: Cartesian3.fromDegrees(...view.position),
       point: {
-        pixelSize: 10, color: Color.fromCssColorString('#d7eea6'),
-        outlineColor: Color.fromCssColorString('#152126'), outlineWidth: 2,
+        pixelSize: 9, color: Color.fromCssColorString('#f8faf9'),
+        outlineColor: Color.fromCssColorString('#155b70'), outlineWidth: 2,
         disableDepthTestDistance: Infinity,
       },
       label: {
-        text: view.label, font: '16px sans-serif', style: LabelStyle.FILL_AND_OUTLINE,
-        fillColor: Color.fromCssColorString('#eff2ec'), outlineColor: Color.fromCssColorString('#152126'),
+        text: view.labels[language], font: '16px sans-serif', style: LabelStyle.FILL_AND_OUTLINE,
+        fillColor: Color.fromCssColorString('#ffffff'), outlineColor: Color.fromCssColorString('#243e49'),
         outlineWidth: 3, verticalOrigin: VerticalOrigin.BOTTOM, pixelOffset: new Cartesian2(0, -12),
         disableDepthTestDistance: Infinity,
         distanceDisplayCondition: new DistanceDisplayCondition(1100, 60000),
@@ -27,5 +27,7 @@ export function createPlaces() {
     })
     destinations.set(entity, key)
   }
-  return { layer, destinations }
+  return { layer, destinations, setLanguage(next) {
+    for (const [entity, key] of destinations) entity.label.text = viewpoints[key].labels[next]
+  } }
 }

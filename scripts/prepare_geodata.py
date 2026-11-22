@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BOUNDS = (2685000, 1276000, 2691000, 1285000)
 TERRAIN_STEP = 10
 HISTORY_URL = "https://data.geo.sh.ch/ogd/bombardierung_schaffhausen.zip"
-HISTORY_METADATA = "https://opendata.swiss/de/dataset/bombardierung-schaffhausen-kanton-schaffhausen"
+HISTORY_METADATA = "https://data.europa.eu/data/datasets/868d4efd-0f2e-46ab-adfb-ffc1056861d9-amt-geoinformation-kanton-schaffhausen?locale=de"
 HISTORY_MEMBER = "datenabgabe/gpkg/bombardierung_schaffhausen.gpkg"
 HISTORY_LAYER = "oeffentlich.sh.bevoelkerungsschutz.bombardierung.sh.bombeneinschlaege"
 DATA = "https://data.geo.admin.ch"
