@@ -25,7 +25,7 @@ async function files(directory) {
 for (const file of ['README.md', 'README.en.md', ...await files('doc')]) {
   if (extname(file) !== '.md') continue
   const text = await readFile(resolve(root, file), 'utf8')
-  for (const match of text.matchAll(/https?:\/\/[^\s<>"')]+/g)) {
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"'`)]+/g)) {
     if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(match[0]).hostname)) external.add(match[0])
   }
   for (const match of text.matchAll(/\]\(([^)]+)\)|\bsrc="([^"]+)"/g)) {
