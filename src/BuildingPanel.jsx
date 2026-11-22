@@ -28,4 +28,3 @@ export function Building({ feature, onClose }) {
     </section>
   )
 }
-

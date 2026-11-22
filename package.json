@@ -1,11 +1,12 @@
 {
-  "name": "schaffhausen-3d",
+  "name": "rheinblicke",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test scripts/map.test.js",
+    "test": "node --test scripts/*.test.js",
+    "check:links": "node scripts/check-links.js",
     "build": "vite build",
     "preview": "vite preview"
   },
