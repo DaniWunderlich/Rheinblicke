@@ -4,7 +4,6 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import file_digest
-from itertools import product
 import json
 import math
 from pathlib import Path
@@ -17,25 +16,44 @@ from osgeo import gdal, ogr
 from pyproj import Transformer, datadir
 
 ROOT = Path(__file__).resolve().parents[1]
-BOUNDS = (2688468, 1282830, 2690820, 1284020)
-TERRAIN_STEP = 7
+BOUNDS = (2685000, 1276000, 2691000, 1285000)
+TERRAIN_STEP = 10
 HISTORY_URL = "https://data.geo.sh.ch/ogd/bombardierung_schaffhausen.zip"
 HISTORY_METADATA = "https://opendata.swiss/de/dataset/bombardierung-schaffhausen-kanton-schaffhausen"
 HISTORY_MEMBER = "datenabgabe/gpkg/bombardierung_schaffhausen.gpkg"
 HISTORY_LAYER = "oeffentlich.sh.bevoelkerungsschutz.bombardierung.sh.bombeneinschlaege"
 DATA = "https://data.geo.admin.ch"
 GRID = "ch_swisstopo_chgeo2004_ETRS89_LN02.tif"
-BUILDINGS = ("1031-24", "1031-42", "1032-13", "1032-31")
-RASTERS = tuple(f"{e}-{n}" for e, n in product((2688, 2689, 2690), (1282, 1283, 1284)))
 MAP_PARAMS = {
     "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap",
-    "LAYERS": "ch.swisstopo.swisstlm3d-karte-farbe", "STYLES": "", "CRS": "EPSG:2056",
+    "LAYERS": "ch.swisstopo.pixelkarte-farbe", "STYLES": "", "CRS": "EPSG:2056",
     "BBOX": ",".join(map(str, BOUNDS)), "WIDTH": (BOUNDS[2] - BOUNDS[0]) // 2, "HEIGHT": (BOUNDS[3] - BOUNDS[1]) // 2, "FORMAT": "image/png",
 }
 
 
 def asset(collection, item, suffix):
     return f"{DATA}/ch.swisstopo.{collection}/{item}/{item}{suffix}"
+
+
+def edition_assets(collection, year, suffix):
+    # Discover only published tiles: the expanded area crosses the national border.
+    geographic = Transformer.from_crs(2056, 4326, always_xy=True)
+    bounds = geographic.transform_bounds(*BOUNDS)
+    url = f"{DATA}/api/stac/v0.9/collections/ch.swisstopo.{collection}/items?" + urlencode({
+        "bbox": ",".join(map(str, bounds)), "limit": 100,
+    })
+    urls = []
+    while url:
+        with urlopen(url, timeout=90) as response:
+            page = json.load(response)
+        for item in page["features"]:
+            if not item["id"].startswith(f"{collection}_{year}_"):
+                continue
+            urls.extend(value["href"] for key, value in item["assets"].items() if key.endswith(suffix))
+        url = next((link["href"] for link in page["links"] if link["rel"] == "next"), None)
+    if not urls:
+        raise ValueError(f"No {collection} tiles found for edition {year}")
+    return sorted(set(urls))
 
 
 def download(cache, url):
@@ -145,8 +163,8 @@ def texture(source, cache, name):
     return path.read_bytes()
 
 
-def terrain_model(terrain, photo, cartography, cache, out, frame):
-    # Sample the 2 m elevation source on a regular 7 m mesh for interactive rendering.
+def terrain_model(terrain, regional, photo, cartography, cache, out, frame):
+    # Sample swissALTI3D where available; swissALTIRegio covers German territory.
     west, south, east, north = BOUNDS
     width = (east - west) // TERRAIN_STEP + 1
     height = (north - south) // TERRAIN_STEP + 1
@@ -155,6 +173,12 @@ def terrain_model(terrain, photo, cartography, cache, out, frame):
     dem = gdal.Warp("", dem, format="MEM", outputBounds=(west-margin, south-margin, east+margin, north+margin),
                     width=width, height=height, resampleAlg="bilinear", dstNodata=-9999)
     elevation = dem.ReadAsArray()
+    missing = ~np.isfinite(elevation) | (elevation == -9999)
+    if np.any(missing):
+        fallback = gdal.Warp("", str(regional), format="MEM", srcSRS="EPSG:2056", dstSRS="EPSG:2056",
+                             outputBounds=(west-margin, south-margin, east+margin, north+margin),
+                             width=width, height=height, resampleAlg="bilinear", dstNodata=-9999)
+        elevation[missing] = fallback.ReadAsArray()[missing]
     if not np.all(np.isfinite(elevation) & (elevation != -9999)):
         raise ValueError("Missing terrain samples in the prototype area")
     x, y = np.meshgrid(np.linspace(west, east, width), np.linspace(north, south, height))
@@ -168,7 +192,17 @@ def terrain_model(terrain, photo, cartography, cache, out, frame):
 
     imagery = gdal.BuildVRT("", [str(p) for p in photo])
     imagery = gdal.Warp("", imagery, format="MEM", outputBounds=BOUNDS,
-                        width=MAP_PARAMS["WIDTH"], height=MAP_PARAMS["HEIGHT"], resampleAlg="bilinear")
+                        width=MAP_PARAMS["WIDTH"], height=MAP_PARAMS["HEIGHT"], resampleAlg="bilinear",
+                        dstAlpha=True)
+    # Keep the border region visible where SWISSIMAGE has no coverage.
+    rgba = imagery.ReadAsArray()
+    background = gdal.Open(str(cartography)).ReadAsArray()[:3]
+    missing_photo = rgba[3] == 0
+    rgb = rgba[:3].copy()
+    rgb[:, missing_photo] = background[:, missing_photo]
+    imagery = gdal.GetDriverByName("MEM").Create("", rgb.shape[2], rgb.shape[1], 3, gdal.GDT_Byte)
+    for band in range(3):
+        imagery.GetRasterBand(band + 1).WriteArray(rgb[band])
     for name, source in [("basiskarte", str(cartography)), ("luftbild", imagery)]:
         glb = Glb()
         glb.document["extensionsUsed"] = ["KHR_materials_unlit"]
@@ -334,27 +368,31 @@ def main():
     gdal.UseExceptions()
     ogr.UseExceptions()
 
-    building_urls = [asset("swissbuildings3d_3_0", f"swissbuildings3d_3_0_2025_{tile}", "_2056_5728.gdb.zip")
-                     for tile in BUILDINGS]
-    terrain_urls = [asset("swissalti3d", f"swissalti3d_2026_{tile}", "_2_2056_5728.tif") for tile in RASTERS]
-    photo_urls = [asset("swissimage-dop10", f"swissimage-dop10_2025_{tile}", "_2_2056.tif") for tile in RASTERS]
+    building_urls = edition_assets("swissbuildings3d_3_0", 2025, "_2056_5728.gdb.zip")
+    terrain_urls = edition_assets("swissalti3d", 2026, "_2_2056_5728.tif")
+    photo_urls = edition_assets("swissimage-dop10", 2025, "_2_2056.tif")
+    regional_url = asset("swissaltiregio", "swissaltiregio_2685-1274", "_2056_5728.xyz.zip")
     map_url = f"https://wms.geo.admin.ch/?{urlencode(MAP_PARAMS)}"
     grid_url = f"https://cdn.proj.org/{GRID}"
     with ThreadPoolExecutor(max_workers=6) as pool:
         files = dict(zip(
-            urls := [*building_urls, *terrain_urls, *photo_urls, map_url, grid_url, HISTORY_URL],
+            urls := [*building_urls, *terrain_urls, *photo_urls, regional_url, map_url, grid_url, HISTORY_URL],
             pool.map(lambda url: download(cache, url), urls),
         ))
 
     frame = LocalFrame(cache)
-    elevation = terrain_model([files[url] for url in terrain_urls], [files[url] for url in photo_urls],
+    # The regional 10 km XYZ tile fills the cross-border gap near Altenburg.
+    regional = gdal.Open(f"/vsizip/{files[regional_url]}")
+    regional_tif = cache / "regional-terrain.tif"
+    gdal.Translate(str(regional_tif), regional, format="GTiff", outputSRS="EPSG:2056")
+    elevation = terrain_model([files[url] for url in terrain_urls], regional_tif, [files[url] for url in photo_urls],
                               files[map_url], cache, out, frame)
     points = history_points(files[HISTORY_URL], out, frame, elevation)
     low, high = float(elevation.min()), float(elevation.max())
     count, triangles = buildings_model([files[url] for url in building_urls], out, frame)
     (out / "gebiet.json").write_text(json.dumps({
         "center": frame.center, "transform": frame.transform(), "boundsLv95": BOUNDS,
-        "buildings": count, "terrainHeightLn02": [round(low), round(high)],
+        "buildings": count, "terrainHeightLn02": [round(low), round(high)], "terrainStep": TERRAIN_STEP,
     }, indent=2) + "\n")
     print(f"{count} buildings, {triangles} triangles, terrain {low:.1f}–{high:.1f} m LN02, {points} historical impact points")
 
