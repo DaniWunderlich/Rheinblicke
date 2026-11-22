@@ -44,7 +44,7 @@ test('all named destinations have distinct, clickable map markers inside the exp
   for (const key of ['oldTown', 'munot', 'rhine', 'neuhausen', 'rhineFalls', 'rheinau', 'doubleBend', 'celticRampart']) {
     const entity = layer.entities.getById(`place-${key}`)
     assert.equal(destinations.get(entity), key)
-    assert.equal(entity.label.text.getValue(time), viewpoints[key].label)
+    assert.equal(entity.label.text.getValue(time), viewpoints[key].labels.de)
     const [lon, lat, height] = viewpoints[key].position
     assert.ok(Cartesian3.equalsEpsilon(entity.position.getValue(time), Cartesian3.fromDegrees(lon, lat, height), 1e-9))
     assert.ok(lon > 8.58 && lon < 8.649 && lat > 47.63 && lat < 47.71)

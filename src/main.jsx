@@ -3,29 +3,29 @@ import { createRoot } from 'react-dom/client'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { createScene, viewpoints } from './scene'
 import { HistoryContext, HistoryLocation, HistorySource } from './HistoryPanels'
+import { LanguageProvider, useLanguage } from './Language'
+import { Building } from './BuildingPanel'
+import { links } from './links.js'
 import './style.css'
 
-const number = new Intl.NumberFormat('de-CH', { maximumFractionDigits: 1 })
-const describe = (value) => value?.replace('Gebaeude', 'Gebäude').replaceAll('_', ' ')
-const measured = (value, unit) => Number.isFinite(value) && value > 0 ? `${number.format(value)} ${unit}` : null
-
 function Layers({ buildings, photo, history, disabled, onBuildings, onPhoto, onHistory, children }) {
+  const { t } = useLanguage()
   return (
     <section className="panel layers" aria-labelledby="layer-heading">
-      <h2 id="layer-heading">Kartenlayer</h2>
+      <h2 id="layer-heading">{t.layers}</h2>
       <label className="layer">
         <span className="swatch building-swatch" aria-hidden="true" />
-        <span>3D-Gebäude</span>
+        <span>{t.buildings}</span>
         <input type="checkbox" role="switch" disabled={disabled} checked={buildings} onChange={(event) => onBuildings(event.target.checked)} />
       </label>
       <label className="layer">
         <span className="swatch photo-swatch" aria-hidden="true" />
-        <span>Luftbild</span>
+        <span>{t.photo}</span>
         <input type="checkbox" role="switch" disabled={disabled} checked={photo} onChange={(event) => onPhoto(event.target.checked)} />
       </label>
       <label className="layer">
         <span className="swatch history-swatch" aria-hidden="true" />
-        <span>Bombardierung 1944</span>
+        <span>{t.history}</span>
         <input type="checkbox" role="switch" disabled={disabled} checked={history} onChange={(event) => onHistory(event.target.checked)} />
       </label>
       {children}
@@ -33,32 +33,9 @@ function Layers({ buildings, photo, history, disabled, onBuildings, onPhoto, onH
   )
 }
 
-function Building({ feature, onClose }) {
-  const properties = [
-    ['Gebäude-ID (EGID)', feature.egid > 0 ? String(feature.egid) : null],
-    ['Objektart', describe(feature.type)],
-    ['Nutzung', describe(feature.use)],
-    ['Gebäudehöhe', measured(feature.height, 'm')],
-    ['Höchster Dachpunkt', measured(feature.roofHeight, 'm ü. M.')],
-    ['Erfassungsjahr', feature.year > 0 ? String(feature.year) : null],
-  ].filter(([, value]) => value)
-  return (
-    <section className="panel building-info" aria-label="Gebäudeinformationen">
-      <div className="info-title">
-        <h2>{feature.name || 'Ausgewähltes Gebäude'}</h2>
-        <button className="icon close" type="button" aria-label="Gebäudeinformationen schliessen" onClick={onClose}>×</button>
-      </div>
-      <dl>
-        {properties.map(([label, value]) => (
-          <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-        ))}
-      </dl>
-      <p className="source">© swisstopo · swissBUILDINGS3D 3.0</p>
-    </section>
-  )
-}
 
 function App() {
+  const { language, setLanguage, t } = useLanguage()
   const map = useRef(null)
   const credits = useRef(null)
   const compass = useRef(null)
@@ -74,6 +51,7 @@ function App() {
   const [historyError, setHistoryError] = useState('')
   const [error, setError] = useState('')
   const [photoError, setPhotoError] = useState('')
+  const [activePlace, setActivePlace] = useState('overview')
 
   useEffect(() => {
     let active = true
@@ -81,11 +59,12 @@ function App() {
     const showError = (cause) => {
       if (!active) return
       console.error(cause)
-      setError('Das 3D-Modell konnte nicht vollständig geladen werden. Bitte lade die Seite neu und prüfe, ob dein Browser WebGL unterstützt.')
+      setError('modelError')
     }
     try {
       scene = createScene(map.current, credits.current, {
         onSelect: setFeature,
+        onFocus: setActivePlace,
         onHistorySelect: (places) => {
           setLocations(places)
           setSelectedLocation(null)
@@ -96,7 +75,7 @@ function App() {
           console.error(cause)
           setHistory(false)
           setContext(false)
-          setHistoryError('Die historischen Geodaten konnten nicht geladen werden.')
+          setHistoryError('historyError')
         },
         onHeading: (heading) => {
           if (compass.current) compass.current.style.transform = `rotate(${-heading}rad)`
@@ -106,7 +85,7 @@ function App() {
           if (!active) return
           console.error(cause)
           setPhoto(false)
-          setPhotoError('Das Luftbild konnte nicht geladen werden.')
+          setPhotoError('photoError')
         },
       })
       viewer.current = scene
@@ -121,24 +100,37 @@ function App() {
     }
   }, [])
 
+  useEffect(() => { viewer.current?.setLanguage(language) }, [language])
+
   return (
     <main className="app">
       <header className="topbar">
         <div className="title">
-          <span className="title-icon" aria-hidden="true"><i /><i /><i /></span>
-          <h1>Schaffhausen <span>3D</span></h1>
+          <h1>Rheinblicke</h1>
+          <p>{t.subtitle}</p>
         </div>
-        <nav className="viewpoints" aria-label="Aussichtspunkte">
-          {Object.entries(viewpoints).map(([key, { label }]) => (
-            <button type="button" key={key} disabled={!area} onClick={() => viewer.current?.focus(key)}>{label}</button>
-          ))}
-        </nav>
+        <div className="language" role="group" aria-label={t.language}>
+          {['de', 'en'].map((code) => <button key={code} type="button" lang={code} aria-pressed={language === code}
+            onClick={() => setLanguage(code)}>{code === 'de' ? 'Deutsch' : 'English'}</button>)}
+        </div>
       </header>
+      <nav className="viewpoints" aria-label={t.viewpoints}>
+        <span className="nav-label">{t.viewpoints}</span>
+        {Object.entries(viewpoints).map(([key, view]) => (
+          <button type="button" key={key} disabled={!area} aria-pressed={activePlace === key}
+            onClick={() => { setActivePlace(key); viewer.current?.focus(key) }}>{view.labels[language]}</button>
+        ))}
+      </nav>
       <div className="workspace">
-        <div className="map" ref={map} role="region" aria-label="Interaktives 3D-Stadtmodell" />
-        {error ? <p className="status" role="alert">{error}</p>
-          : !area && <p className="status" role="status">3D-Stadtmodell wird geladen …</p>}
-        {photoError && !error && <p className="status" role="status">{photoError}</p>}
+        <div className="map" ref={map} role="region" aria-label={t.map} tabIndex={0} aria-describedby="keyboard-help"
+          onKeyDown={(event) => {
+            if (!area || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', '+', '=', '-', 'n', 'N'].includes(event.key)) return
+            event.preventDefault()
+            viewer.current?.keyboard(event.key)
+          }} />
+        {error ? <p className="status" role="alert">{t[error]}</p>
+          : !area && <p className="status" role="status">{t.loading}</p>}
+        {photoError && !error && <p className="status" role="status">{t[photoError]}</p>}
         <div className="sidebar">
           <Layers buildings={buildings} photo={photo} history={history} disabled={!area}
             onBuildings={(value) => { setBuildings(value); viewer.current?.setBuildings(value) }}
@@ -151,30 +143,31 @@ function App() {
             }}>
             {history && (
               <div className="history-actions">
-                <button type="button" className="history-button" onClick={() => viewer.current?.focus('history')}>Einschlagorte zeigen</button>
-                <button type="button" className="history-button" aria-expanded={context} onClick={() => setContext(!context)}>Historische Einordnung</button>
+                <button type="button" className="history-button" onClick={() => viewer.current?.focus('history')}>{t.showImpacts}</button>
+                <button type="button" className="history-button" aria-expanded={context} onClick={() => setContext(!context)}>{t.context}</button>
               </div>
             )}
-            {historyError && <p className="history-error" role="alert">{historyError}</p>}
+            {historyError && <p className="history-error" role="alert">{t[historyError]}</p>}
           </Layers>
           {history && context && <HistoryContext onClose={() => setContext(false)} />}
           {history && locations && <HistoryLocation locations={locations} selected={selectedLocation}
             onSelect={setSelectedLocation} onClose={() => viewer.current?.clearSelection()} />}
           {feature && <Building feature={feature} onClose={() => viewer.current?.clearSelection()} />}
         </div>
-        <div className="map-controls" aria-label="Kartensteuerung">
-          <button className="icon north" type="button" aria-label="Nach Norden ausrichten" title="Nach Norden ausrichten" disabled={!area}
+        <div className="map-controls" aria-label={t.controls}>
+          <button className="icon north" type="button" aria-label={t.north} title={t.north} disabled={!area}
             onClick={() => viewer.current?.north()}><span ref={compass} aria-hidden="true">N</span></button>
           <div className="zoom">
-            <button className="icon" type="button" aria-label="Vergrössern" title="Vergrössern" disabled={!area} onClick={() => viewer.current?.zoom(true)}>+</button>
-            <button className="icon" type="button" aria-label="Verkleinern" title="Verkleinern" disabled={!area} onClick={() => viewer.current?.zoom(false)}>−</button>
+            <button className="icon" type="button" aria-label={t.zoomIn} title={t.zoomIn} disabled={!area} onClick={() => viewer.current?.zoom(true)}>+</button>
+            <button className="icon" type="button" aria-label={t.zoomOut} title={t.zoomOut} disabled={!area} onClick={() => viewer.current?.zoom(false)}>−</button>
           </div>
         </div>
         <footer className="map-footer">
-          <p className="help">Ziehen zum Verschieben · Rechts ziehen zum Neigen und Drehen · Scrollen zum Zoomen</p>
+          <p className="help"><span className="mouse-help">{t.help}</span><span className="touch-help">{t.touchHelp}</span></p>
+          <p id="keyboard-help" className="sr-only">{t.keyboardHelp}</p>
           <div className="attribution">
-            <a href="https://www.swisstopo.admin.ch/" target="_blank" rel="noreferrer">© swisstopo</a>
-            {history && <HistorySource>Kanton SH</HistorySource>}
+            <a href={links.swisstopo} target="_blank" rel="noreferrer">© swisstopo</a>
+            {history && <HistorySource>{t.canton}</HistorySource>}
             <div ref={credits} className="cesium-credits" />
           </div>
         </footer>
@@ -183,4 +176,4 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(<LanguageProvider><App /></LanguageProvider>)

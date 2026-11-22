@@ -6,11 +6,12 @@ import {
 import { loadHistory } from './historyScene'
 import { createPlaces } from './placesScene'
 import { viewpoints } from './viewpoints'
+import { links } from './links.js'
 export { viewpoints } from './viewpoints'
 
 const staticRoot = new URL(import.meta.env.BASE_URL, document.baseURI)
 globalThis.CESIUM_BASE_URL = new URL('cesium/', staticRoot).href
-CreditDisplay.cesiumCredit = new Credit('<a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noreferrer">CesiumJS</a>', true)
+CreditDisplay.cesiumCredit = new Credit(`<a href="${links.cesium}" target="_blank" rel="noreferrer">CesiumJS</a>`, true)
 const dataUrl = (name) => new URL(`geodata/${name}`, staticRoot).href
 
 const historyView = { position: [8.6282, 47.6957, 455], heading: 345, pitch: -58, range: 1830 }
@@ -23,12 +24,13 @@ export function createScene(container, credits, callbacks) {
     animation: false, timeline: false, baseLayerPicker: false, baseLayer: false,
     geocoder: false, homeButton: false, sceneModePicker: false, navigationHelpButton: false,
     selectionIndicator: false, infoBox: false, fullscreenButton: false,
+    showRenderLoopErrors: false,
     globe: false, skyBox: false, skyAtmosphere: false, scene3DOnly: true,
     requestRenderMode: true, maximumRenderTimeChange: Infinity,
     creditContainer: credits,
   })
   const { scene, camera } = viewer
-  scene.backgroundColor = Color.fromCssColorString('#23333a')
+  scene.backgroundColor = Color.fromCssColorString('#dce5e8')
   scene.highDynamicRange = false
   scene.fog.enabled = false
   scene.screenSpaceCameraController.minimumZoomDistance = 45
@@ -59,6 +61,7 @@ export function createScene(container, credits, callbacks) {
 
   function focus(key, animate = true) {
     if (!area) return
+    callbacks.onFocus?.(key)
     const view = key === 'history' ? historyView : viewpoints[key]
     const target = Cartesian3.fromDegrees(...(view.position ?? area.center))
     const offset = new HeadingPitchRange(CesiumMath.toRadians(view.heading),
@@ -213,6 +216,22 @@ export function createScene(container, credits, callbacks) {
     setPhoto,
     setHistory,
     clearSelection,
+    setLanguage(language) {
+      places.setLanguage(language)
+      scene.requestRender()
+    },
+    keyboard(key) {
+      if (!area) return
+      const distance = Math.max(20, (camera.positionCartographic.height - area.center[2]) * 0.08)
+      if (key === 'ArrowUp') camera.moveUp(distance)
+      if (key === 'ArrowDown') camera.moveDown(distance)
+      if (key === 'ArrowLeft') camera.moveLeft(distance)
+      if (key === 'ArrowRight') camera.moveRight(distance)
+      if (key === '+' || key === '=') this.zoom(true)
+      if (key === '-') this.zoom(false)
+      if (key.toLowerCase() === 'n') this.north()
+      scene.requestRender()
+    },
     setBuildings(visible) {
       showBuildings = visible
       if (buildings) buildings.show = visible
