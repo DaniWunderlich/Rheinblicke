@@ -16,7 +16,7 @@ button { cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.55; }
 button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.app { height: 100vh; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.app { height: 100vh; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
 .topbar {
   z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 1rem;
   padding: 0.9rem 1.25rem; background: #10191d; border-bottom: 1px solid var(--border);
@@ -28,7 +28,7 @@ h1 span { color: var(--accent); }
 .title-icon i { width: 4px; background: var(--accent); height: 8px; }
 .title-icon i:nth-child(2) { height: 14px; }
 .title-icon i:nth-child(3) { height: 10px; }
-.viewpoints { display: flex; gap: 0.35rem; }
+.viewpoints { min-width: 0; max-width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.35rem; }
 .viewpoints button, .icon {
   border: 1px solid var(--border); background: var(--panel); color: inherit; border-radius: 7px;
 }
@@ -83,9 +83,13 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 .attribution a { color: #d4dedf; white-space: nowrap; }
 .cesium-credits { display: flex; align-items: center; }
 .cesium-credits .cesium-credit-logoContainer img { max-height: 16px; width: auto; }
+@media (max-width: 1100px) {
+  .topbar { flex-wrap: wrap; }
+  .viewpoints { width: 100%; justify-content: flex-start; }
+}
 @media (max-width: 680px) {
   .topbar { flex-wrap: wrap; gap: 0.6rem; padding: 0.65rem 0.75rem; }
-  .viewpoints { width: 100%; overflow-x: auto; padding: 0.2rem 0.15rem; }
+  .viewpoints { width: 100%; flex-wrap: nowrap; overflow-x: auto; padding: 0.2rem 0.15rem; }
   .viewpoints button { flex: 1; padding: 0.45rem 0.5rem; }
   .sidebar { top: 0.7rem; left: 0.7rem; width: min(220px, calc(100% - 4.5rem)); }
   .panel { padding: 0.6rem 0.7rem; }

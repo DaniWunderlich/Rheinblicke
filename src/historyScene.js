@@ -3,7 +3,7 @@ import { Cartesian3, Color, CustomDataSource, HorizontalOrigin } from 'cesium'
 const markerColor = Color.fromCssColorString('#93d6e8')
 const markerOutline = Color.fromCssColorString('#173440')
 
-export async function loadHistory(url, signal) {
+export async function loadHistory(url, signal, requestRender = () => {}) {
   const response = await fetch(url, { signal })
   if (!response.ok) throw new Error(`Bombardierung 1944: HTTP ${response.status}`)
   const { features } = await response.json()
@@ -22,6 +22,7 @@ export async function loadHistory(url, signal) {
     label.backgroundColor = markerColor
     label.horizontalOrigin = HorizontalOrigin.CENTER
     label.disableDepthTestDistance = Infinity
+    requestRender()
   })
 
   for (const feature of features) {

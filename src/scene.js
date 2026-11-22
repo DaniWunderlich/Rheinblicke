@@ -4,18 +4,14 @@ import {
   ScreenSpaceEventHandler, ScreenSpaceEventType, Viewer,
 } from 'cesium'
 import { loadHistory } from './historyScene'
+import { createPlaces } from './placesScene'
+import { viewpoints } from './viewpoints'
+export { viewpoints } from './viewpoints'
 
 const staticRoot = new URL(import.meta.env.BASE_URL, document.baseURI)
 globalThis.CESIUM_BASE_URL = new URL('cesium/', staticRoot).href
 CreditDisplay.cesiumCredit = new Credit('<a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noreferrer">CesiumJS</a>', true)
 const dataUrl = (name) => new URL(`geodata/${name}`, staticRoot).href
-
-export const viewpoints = {
-  overview: { label: 'Übersicht', heading: 328, pitch: -55, range: 1940 },
-  oldTown: { label: 'Altstadt', position: [8.6339, 47.69645, 455], heading: 340, pitch: -52, range: 760 },
-  munot: { label: 'Munot', position: [8.64024, 47.69687, 497], heading: 321, pitch: -39, range: 460 },
-  rhine: { label: 'Rheinufer', position: [8.6355, 47.69375, 444], heading: 307, pitch: -38, range: 760 },
-}
 
 const historyView = { position: [8.6282, 47.6957, 455], heading: 345, pitch: -58, range: 1830 }
 
@@ -36,7 +32,7 @@ export function createScene(container, credits, callbacks) {
   scene.highDynamicRange = false
   scene.fog.enabled = false
   scene.screenSpaceCameraController.minimumZoomDistance = 45
-  scene.screenSpaceCameraController.maximumZoomDistance = 5500
+  scene.screenSpaceCameraController.maximumZoomDistance = 60000
   scene.screenSpaceCameraController.tiltEventTypes = [
     CameraEventType.MIDDLE_DRAG, CameraEventType.RIGHT_DRAG, CameraEventType.PINCH,
     { eventType: CameraEventType.LEFT_DRAG, modifier: KeyboardEventModifier.CTRL },
@@ -44,6 +40,8 @@ export function createScene(container, credits, callbacks) {
   scene.screenSpaceCameraController.zoomEventTypes = [CameraEventType.WHEEL, CameraEventType.PINCH]
 
   const input = new ScreenSpaceEventHandler(scene.canvas)
+  const places = createPlaces()
+  viewer.dataSources.add(places.layer)
   let area
   let buildings
   let terrain
@@ -92,6 +90,11 @@ export function createScene(container, credits, callbacks) {
   input.setInputAction(({ position }) => {
     const feature = scene.pick(position)
     clearSelection()
+    const destination = places.destinations.get(feature?.id)
+    if (destination) {
+      focus(destination)
+      return
+    }
     if (showHistory && history) {
       const ids = Array.isArray(feature?.id) ? feature.id : [feature?.id]
       const locations = ids.map((entity) => history.locations.get(entity)).filter(Boolean)
@@ -148,20 +151,28 @@ export function createScene(container, credits, callbacks) {
   const pendingHistory = new AbortController()
 
   async function setHistory(visible) {
+    if (visible && !showHistory) focus('history')
     showHistory = visible
     if (!visible && historySelection) clearSelection()
-    if (history) history.layer.show = visible
+    if (history) {
+      history.layer.show = visible
+      viewer.dataSourceDisplay.update(viewer.clock.currentTime)
+    }
     scene.requestRender()
     if (!visible || history) return
 
     historyRequest ??= (async () => {
-      const result = await loadHistory(dataUrl('bombardierung-1944.geojson'), pendingHistory.signal)
+      const result = await loadHistory(dataUrl('bombardierung-1944.geojson'), pendingHistory.signal,
+        () => scene.requestRender())
       if (disposed) return
       result.layer.show = showHistory
       await viewer.dataSources.add(result.layer)
       if (disposed) return
       history = result
       history.layer.show = showHistory
+      // Populate entity visualizers before the requested frame. Otherwise the
+      // first frame can render an empty cluster in requestRenderMode.
+      viewer.dataSourceDisplay.update(viewer.clock.currentTime)
       scene.requestRender()
     })().catch((error) => {
       if (disposed || !showHistory) return
@@ -210,10 +221,10 @@ export function createScene(container, credits, callbacks) {
     },
     zoom(closer) {
       if (!area) return
-      const steps = Math.min(260, Math.max(20, (camera.positionCartographic.height - area.center[2]) * 0.21))
+      const steps = Math.min(2500, Math.max(20, (camera.positionCartographic.height - area.center[2]) * 0.21))
       const height = camera.positionCartographic.height - area.center[2]
       if (closer && height > 85) camera.zoomIn(steps)
-      if (!closer && height < 3300) camera.zoomOut(steps)
+      if (!closer && height < 45000) camera.zoomOut(steps)
       scene.requestRender()
     },
     north() {
